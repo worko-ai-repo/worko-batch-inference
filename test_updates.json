@@ -1,0 +1,493 @@
+[
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HS542C02SYVQSMEPPXQ",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "tech",
+        "companyName": "VISA",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 0.5,
+          "max": 2
+        },
+        "coreSkills": [
+          "test planning",
+          "test case writing",
+          "test designing",
+          "quality analysis",
+          "software testing"
+        ],
+        "technicalSkills": [
+          "mainframe",
+          "tso",
+          "mvs jcl",
+          "ispf",
+          "file aid",
+          "cobol",
+          "sql",
+          "db2",
+          "jenkins",
+          "git",
+          "ci/cd"
+        ],
+        "softSkills": [
+          "oral communication",
+          "written communication",
+          "analytical skills",
+          "problem-solving",
+          "teamwork"
+        ],
+        "miscellaneousSkills": [
+          "sdlc methodologies",
+          "agile",
+          "waterfall"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HVQX0QR8JGE7D74ZXWV",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "construction",
+        "companyName": "TURNER & TOWNSEND",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 12,
+          "max": 15
+        },
+        "coreSkills": [
+          "project management",
+          "fit out",
+          "civil structural",
+          "construction"
+        ],
+        "technicalSkills": [
+          "project planning",
+          "data collection",
+          "benchmarking",
+          "reporting"
+        ],
+        "softSkills": [
+          "verbal communication",
+          "written communication",
+          "english proficiency",
+          "team collaboration",
+          "client liaison"
+        ],
+        "miscellaneousSkills": [
+          "meeting management",
+          "documentation",
+          "progress monitoring",
+          "presentation preparation"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HW8CRHWXFAMZW7ZGHJ9",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "tech",
+        "companyName": "SOPRA STERIA",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 4,
+          "max": 6
+        },
+        "coreSkills": [
+          "manufacturing",
+          "business process understanding"
+        ],
+        "technicalSkills": [
+          "native hana",
+          "hana studio",
+          "web ide",
+          "sap abap",
+          "odata",
+          "sql script",
+          "database procedure",
+          "slt/sda",
+          "table functions",
+          "code versioning"
+        ],
+        "softSkills": [
+          "customer focus",
+          "agile mindset"
+        ],
+        "miscellaneousSkills": [
+          "servicenow",
+          "performance monitoring",
+          "performance analysis"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HX0K6R1JRRVN7FX1V4F",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "marketing",
+        "companyName": "DR REDDY'S LABORATORIES",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 7,
+          "max": 10
+        },
+        "coreSkills": [
+          "strategic mindset",
+          "product management",
+          "financial management",
+          "market analysis"
+        ],
+        "technicalSkills": [
+          "pharmaceutical industry knowledge",
+          "data analysis",
+          "budget management",
+          "clinical trial analysis"
+        ],
+        "softSkills": [
+          "communication",
+          "leadership",
+          "networking",
+          "people management",
+          "adaptability",
+          "strategic thinking",
+          "decision-making",
+          "proactive mindset"
+        ],
+        "miscellaneousSkills": [
+          "healthcare professional collaboration",
+          "promotional material development",
+          "product launch planning",
+          "continuing medical education management"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HXJGPBRM2MRD5A6EN6G",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "technology",
+        "companyName": "IQEQ",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 5,
+          "max": null
+        },
+        "coreSkills": [
+          "security incident response",
+          "threat monitoring",
+          "vulnerability management",
+          "security operations",
+          "risk management"
+        ],
+        "technicalSkills": [
+          "splunk",
+          "microsoft sentinel",
+          "qradar",
+          "python",
+          "powershell",
+          "azure security",
+          "firewalls",
+          "ids/ips",
+          "edr",
+          "cloud security",
+          "siem"
+        ],
+        "softSkills": [
+          "analytical thinking",
+          "problem-solving",
+          "communication",
+          "teamwork",
+          "working under pressure",
+          "proactive approach"
+        ],
+        "miscellaneousSkills": [
+          "security awareness training",
+          "root cause analysis",
+          "documentation"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HY2R7XZQPE1YVRQC6AV",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "tech",
+        "companyName": "MIRATECH",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 4,
+          "max": null
+        },
+        "coreSkills": [
+          "software development",
+          "object-oriented programming"
+        ],
+        "technicalSkills": [
+          "c#.net",
+          "powershell",
+          "azure",
+          "sql server",
+          "mysql",
+          "rest apis",
+          "rpc apis",
+          "winforms",
+          "wpf",
+          "active directory",
+          "intune",
+          "sccm/mecm",
+          "web services",
+          "vbscript",
+          "javascript",
+          "python",
+          "microsoft graph api",
+          "mvc"
+        ],
+        "softSkills": [
+          "self-motivated",
+          "collaboration",
+          "agile methodologies",
+          "documentation",
+          "priority management"
+        ],
+        "miscellaneousSkills": [
+          "code reviews",
+          "deployment",
+          "maintenance"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HYTSBSX4GADN5XTM5EA",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "retail",
+        "companyName": "H&M GROUP",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": null,
+          "max": null
+        },
+        "coreSkills": [
+          "retail management",
+          "sales planning",
+          "operations management",
+          "team planning",
+          "store management",
+          "visual merchandising"
+        ],
+        "technicalSkills": [
+          "customer-centric tools",
+          "reporting",
+          "statistics analysis"
+        ],
+        "softSkills": [
+          "leadership",
+          "coaching",
+          "team development",
+          "communication",
+          "creativity",
+          "analytical thinking",
+          "collaboration",
+          "problem-solving"
+        ],
+        "miscellaneousSkills": [
+          "fashion trend awareness",
+          "customer experience management",
+          "commercial analysis"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HZCDNQS34GZ82AFCMX1",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "analytics",
+        "companyName": "NIELSENIQ",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 0,
+          "max": 1
+        },
+        "coreSkills": [
+          "statistical modeling",
+          "data analysis",
+          "research and development",
+          "market research"
+        ],
+        "technicalSkills": [
+          "r",
+          "python",
+          "sql",
+          "vba",
+          "microsoft excel",
+          "regression analysis",
+          "cluster analysis",
+          "factor analysis",
+          "significance testing"
+        ],
+        "softSkills": [
+          "clear communication",
+          "confident communication",
+          "problem solving",
+          "attention to detail",
+          "stakeholder management"
+        ],
+        "miscellaneousSkills": [
+          "fmcg industry knowledge",
+          "tech & durables industry knowledge"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HZFJ9K0N9SYZTQRTQDW",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "finance",
+        "companyName": "WNS",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 5,
+          "max": 6
+        },
+        "coreSkills": [
+          "sales compensation",
+          "incentive management",
+          "financial analysis",
+          "quota management",
+          "program administration"
+        ],
+        "technicalSkills": [
+          "excel",
+          "power bi",
+          "vba",
+          "sql",
+          "xactly",
+          "callidus"
+        ],
+        "softSkills": [
+          "communication",
+          "stakeholder management",
+          "problem-solving",
+          "attention to detail",
+          "analytical mindset",
+          "collaboration"
+        ],
+        "miscellaneousSkills": [
+          "data integrity management",
+          "report generation",
+          "variance analysis"
+        ],
+        "noticePeriod": null
+      }
+    }
+  },
+  {
+    "index": "worko-jobs",
+    "id": "01JVA02HZYPHXW4BCXEK1YTFM5",
+    "update": {
+      "extractedInfo": {
+        "typeofEmployment": "FULL_TIME",
+        "department": "tech",
+        "companyName": "NIELSENIQ",
+        "salaryRange": {
+          "min": null,
+          "max": null
+        },
+        "experienceRange": {
+          "min": 2,
+          "max": 3
+        },
+        "coreSkills": [
+          "software architecture",
+          "data structure",
+          "databases",
+          "code reviews",
+          "coding standards"
+        ],
+        "technicalSkills": [
+          "c++",
+          "shell scripting",
+          "linux",
+          "sql",
+          "python",
+          "cloud concepts",
+          "gtest",
+          "github"
+        ],
+        "softSkills": [
+          "communication",
+          "collaboration",
+          "agile mindset"
+        ],
+        "miscellaneousSkills": [
+          "sprint planning",
+          "estimation",
+          "task management",
+          "requirements gathering"
+        ],
+        "noticePeriod": null
+      }
+    }
+  }
+]
