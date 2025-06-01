@@ -18,3 +18,13 @@ confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = "OpenSearchEndpoint=\"https://vpc-worko-xj7suso2dgzou25l2lgpoymbk4.aos.ap-south-1.on.aws\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-dev\" S3Prefix=\"output/\" LambdaMemorySize=\"512\" LambdaTimeout=\"300\" VpcId=\"vpc-0fc1b68f49b85a818\" SubnetIds=\"subnet-053a378ed8764a609,subnet-0a92c2704117d0bd8\" SecurityGroupIds=\"sg-072a75d69a8f727fa\""
 image_repositories = []
+
+[prod.deploy.parameters]
+stack_name = "worko-job-batch-inference"
+resolve_s3 = true
+s3_prefix = "worko-job-batch-inference"
+region = "ap-south-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "OpenSearchEndpoint=\"https://vpc-worko-prod-opensearch-trjlt4abvga5apdr6jxb3cg74m.aos.ap-south-1.on.aws\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-prod\" S3Prefix=\"output/\" LambdaMemorySize=\"512\" LambdaTimeout=\"300\" VpcId=\"vpc-0ffe51db8ea05d9e5\" SubnetIds=\"subnet-0fc02fbcf44b043b5,subnet-08f96239f78d632ba\" SecurityGroupIds=\"sg-0d92cdb1a32f3060c\""
+image_repositories = []

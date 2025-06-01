@@ -190,14 +190,23 @@ def update_opensearch_records(client, records):
                 else:
                     cleaned_info[key] = value
         
+        # Add isJobUpdated field with value true
+        cleaned_info['isJobUpdated'] = True
+        
         try:
             # First check if the document exists with retry logic
             try:
-                document_exists = retry_with_backoff(
+                document = retry_with_backoff(
                     client.get,
                     index=OPENSEARCH_INDEX,
                     id=record_id
                 )
+                
+                # Check if document already has isJobUpdated field set to true
+                if document.get('_source', {}).get('isJobUpdated') == True:
+                    logger.info(f"Skipping document {record_id} as it's already updated (isJobUpdated=true)")
+                    continue
+                    
             except NotFoundError:
                 logger.warning(f"Document with ID {record_id} not found in index {OPENSEARCH_INDEX}")
                 not_found_records.append(record_id)
