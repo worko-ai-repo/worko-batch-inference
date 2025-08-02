@@ -3,9 +3,13 @@ Transform: AWS::Serverless-2016-10-31
 Description: SAM template for Worko Batch Inference OpenSearch Updater
 
 Parameters:
-  OpenSearchEndpoint:
+  Environment:
     Type: String
-    Description: The endpoint URL of your OpenSearch domain
+    Description: The deployment environment (dev or prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
     
   OpenSearchIndex:
     Type: String
@@ -32,17 +36,7 @@ Parameters:
     Description: Timeout for the Lambda function in seconds
     Default: 600  # 10 minutes
     
-  VpcId:
-    Type: String
-    Description: The ID of the VPC where the Lambda function will run
-    
-  SubnetIds:
-    Type: CommaDelimitedList
-    Description: The IDs of the subnets where the Lambda function will run (comma-delimited list)
-    
-  SecurityGroupIds:
-    Type: CommaDelimitedList
-    Description: The IDs of the security groups to associate with the Lambda function (comma-delimited list)
+  # VPC configuration removed as Lambda now calls another Lambda function outside VPC
 
 Resources:
   WorkoBatchInferenceUpdaterFunction:
@@ -57,26 +51,26 @@ Resources:
       Timeout: !Ref LambdaTimeout
       Environment:
         Variables:
-          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          ENVIRONMENT: !Ref Environment
           OPENSEARCH_INDEX: !Ref OpenSearchIndex
           S3_BUCKET: !Ref S3BucketName
           S3_PREFIX: !Ref S3Prefix
-      VpcConfig:
-        SecurityGroupIds: !Ref SecurityGroupIds
-        SubnetIds: !Ref SubnetIds
+          OPENSEARCH_LAMBDA_DEV: worko-job-app-dev-app-opensearch-operations
+          OPENSEARCH_LAMBDA_PROD: worko-job-app-prod-app-opensearch-operations
+      # VPC configuration removed as Lambda now calls another Lambda function outside VPC
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref S3BucketName
         - S3WritePolicy:
             BucketName: !Ref S3BucketName
-        - VPCAccessPolicy: {}
+        # VPC access policy removed as Lambda now operates outside VPC
         - Statement:
             - Effect: Allow
               Action:
-                - es:ESHttpGet
-                - es:ESHttpPost
-                - es:ESHttpPut
-              Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*"
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-job-app-dev-app-opensearch-operations"
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-job-app-prod-app-opensearch-operations"
       Events:
         BedrockBatchInferenceCompletion:
           Type: EventBridgeRule

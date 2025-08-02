@@ -3,7 +3,7 @@
 Lambda function to update OpenSearch records with processed data from Bedrock batch inference.
 
 This function reads the processed .jsonl.out files from S3, extracts the document ID and processed information
-for each record, and updates the corresponding records in OpenSearch.
+for each record, and updates the corresponding records in OpenSearch via a Lambda function.
 """
 
 import os
@@ -13,19 +13,24 @@ import io
 import datetime
 import time
 import random
-from opensearchpy import OpenSearch, RequestsHttpConnection
-from opensearchpy.exceptions import NotFoundError, ConnectionTimeout, TransportError
-from requests_aws4auth import AWS4Auth
 import boto3
+from botocore.exceptions import ClientError
 
 # Configure logging
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# Set to DEBUG level to see more detailed logs for troubleshooting
+logger.setLevel(logging.DEBUG)
 
-# OpenSearch connection parameters
-OPENSEARCH_ENDPOINT = os.environ.get('OPENSEARCH_ENDPOINT')
+# OpenSearch parameters
 OPENSEARCH_INDEX = os.environ.get('OPENSEARCH_INDEX', 'worko-jobs')
 REGION = os.environ.get('AWS_REGION', 'ap-south-1')
+
+# Lambda function names for different environments
+OPENSEARCH_LAMBDA_DEV = os.environ.get('OPENSEARCH_LAMBDA_DEV', 'worko-job-app-dev-app-opensearch-operations')
+OPENSEARCH_LAMBDA_PROD = os.environ.get('OPENSEARCH_LAMBDA_PROD', 'worko-job-app-prod-app-opensearch-operations')
+
+# Environment setting
+ENVIRONMENT = os.environ.get('ENVIRONMENT', 'dev')
 
 # S3 configuration
 S3_BUCKET = os.environ.get('S3_BUCKET')
@@ -42,9 +47,10 @@ def retry_with_backoff(func, *args, max_retries=5, base_delay=1, **kwargs):
     while True:
         try:
             return func(*args, **kwargs)
-        except (ConnectionTimeout, TransportError) as e:
+        except ClientError as e:
             # Check if we've exceeded max retries or if it's not a throttling error
-            if retries >= max_retries or not (hasattr(e, 'status_code') and e.status_code == 429):
+            error_code = e.response.get('Error', {}).get('Code')
+            if retries >= max_retries or error_code not in ['TooManyRequestsException', 'ThrottlingException']:
                 raise
             
             # Calculate delay with exponential backoff and jitter
@@ -53,32 +59,88 @@ def retry_with_backoff(func, *args, max_retries=5, base_delay=1, **kwargs):
             time.sleep(delay)
             retries += 1
 
-def get_opensearch_client():
+def get_opensearch_lambda_client():
     """
-    Initialize and return an OpenSearch client.
+    Initialize and return a Lambda client to invoke OpenSearch operations.
     """
-    # AWS environment with IAM authentication
-    credentials = boto3.Session().get_credentials()
+    # Determine which Lambda function to use based on environment
+    lambda_client = boto3.client('lambda', region_name=REGION)
     
-    # Create AWS Signature V4 auth
-    awsauth = AWS4Auth(
-        credentials.access_key,
-        credentials.secret_key,
-        REGION,
-        'es',
-        session_token=credentials.token
-    )
+    return lambda_client
+
+def parse_opensearch_response(response_payload):
+    """
+    Parse and extract relevant information from OpenSearch Lambda response.
+    Handles different response formats.
     
-    # Use AWS Signature Version 4 Signer for all requests to OpenSearch
-    client = OpenSearch(
-        hosts=[OPENSEARCH_ENDPOINT],
-        http_auth=awsauth,
-        use_ssl=True,
-        verify_certs=False,  # Set to False to ignore self-signed certificate errors
-        connection_class=RequestsHttpConnection
-    )
+    Args:
+        response_payload: The payload from Lambda response
+        
+    Returns:
+        tuple: (success, document_data, status_code, error_message)
+    """
+    success = False
+    document_data = {}
+    status_code = None
+    error_message = None
     
-    return client
+    try:
+        # Handle string or dict payload
+        if isinstance(response_payload, str):
+            try:
+                response_payload = json.loads(response_payload)
+            except json.JSONDecodeError:
+                error_message = "Could not parse response payload as JSON"
+                return success, document_data, status_code, error_message
+        
+        # Extract status code
+        status_code = response_payload.get('statusCode')
+        
+        # Check for success based on status code
+        if status_code == 200:
+            success = True
+        elif status_code == 404:
+            error_message = "Document not found"
+            return success, document_data, status_code, error_message
+        
+        # Extract document data from body
+        body = response_payload.get('body')
+        if body:
+            if isinstance(body, str):
+                try:
+                    body = json.loads(body)
+                except json.JSONDecodeError:
+                    # If body is not JSON, it might be the document content directly
+                    document_data = {'content': body}
+                    return success, document_data, status_code, error_message
+            
+            # Handle OpenSearch specific response formats
+            if isinstance(body, dict):
+                # Check for OpenSearch result field
+                if 'result' in body:
+                    if body['result'] in ['created', 'updated']:
+                        success = True
+                
+                # Extract document source if available
+                if '_source' in body:
+                    document_data = body['_source']
+                else:
+                    # If no _source, use the body as the document data
+                    document_data = body
+        
+        # Check for result field directly in response
+        if 'result' in response_payload:
+            if response_payload['result'] in ['created', 'updated']:
+                success = True
+        
+        # Check for error message
+        if not success and not error_message:
+            error_message = response_payload.get('error') or response_payload.get('message') or "Unknown error"
+    
+    except Exception as e:
+        error_message = f"Error parsing response: {str(e)}"
+    
+    return success, document_data, status_code, error_message
 
 def list_s3_files(bucket, prefix):
     """
@@ -167,12 +229,20 @@ def read_inference_output_from_s3(bucket, key):
     logger.info(f"Processed {len(records)} records from inference output file {key}")
     return records
 
-def update_opensearch_records(client, records):
+def update_opensearch_records(lambda_client, records):
     """
-    Update OpenSearch records with the extracted information.
+    Update OpenSearch records with the extracted information via Lambda function.
     """
     updated_count = 0
     not_found_records = []
+    
+    logger.info(f"Starting to update {len(records)} OpenSearch records")
+    # Log the first record structure for debugging
+    if records and len(records) > 0:
+        logger.debug(f"Sample record structure: {json.dumps(records[0], indent=2)[:500]}...")
+    
+    # Determine which Lambda function to use based on environment
+    lambda_function_name = OPENSEARCH_LAMBDA_PROD if ENVIRONMENT.lower() == 'prod' else OPENSEARCH_LAMBDA_DEV
     
     for record in records:
         record_id = record['record_id']
@@ -196,45 +266,118 @@ def update_opensearch_records(client, records):
         try:
             # First check if the document exists with retry logic
             try:
-                document = retry_with_backoff(
-                    client.get,
-                    index=OPENSEARCH_INDEX,
-                    id=record_id
+                # Prepare payload for getDocumentById operation
+                get_payload = {
+                    "indexName": OPENSEARCH_INDEX,
+                    "body": {
+                        "documentId": record_id
+                    },
+                    "operation": "getDocumentById"
+                }
+                
+                logger.debug(f"Checking if document {record_id} exists with payload: {get_payload}")
+                
+                # Invoke Lambda function to check if document exists
+                get_response = retry_with_backoff(
+                    lambda_client.invoke,
+                    FunctionName=lambda_function_name,
+                    InvocationType='RequestResponse',
+                    Payload=json.dumps(get_payload)
                 )
                 
+                # Parse the response
+                get_result = json.loads(get_response['Payload'].read().decode())
+                
+                # Log the response for debugging
+                logger.debug(f"Get document response for {record_id}: {get_result}")
+                
+                # Use helper function to parse the response
+                exists, doc_source, status_code, error = parse_opensearch_response(get_result)
+                
+                # Check if document exists
+                if status_code == 404 or not exists:
+                    logger.warning(f"Document with ID {record_id} not found in index {OPENSEARCH_INDEX}: {error}")
+                    not_found_records.append(record_id)
+                    continue
+                
+                logger.debug(f"Extracted document source for {record_id}: {doc_source}")
+                
                 # Check if document already has isJobUpdated field set to true
-                if document.get('_source', {}).get('isJobUpdated') == True:
+                if doc_source.get('isJobUpdated') == True:
                     logger.info(f"Skipping document {record_id} as it's already updated (isJobUpdated=true)")
                     continue
                     
-            except NotFoundError:
-                logger.warning(f"Document with ID {record_id} not found in index {OPENSEARCH_INDEX}")
+            except Exception as e:
+                logger.error(f"Error checking document {record_id}: {e}")
                 not_found_records.append(record_id)
                 continue
             
-            # Update the document with extracted information directly with retry logic
-            update_body = {
-                "doc": cleaned_info  # Store directly in document, not in extractedInfo field
+            # Prepare payload for updateDocumentById operation
+            update_payload = {
+                "indexName": OPENSEARCH_INDEX,
+                "body": {
+                    "id": record_id,
+                    "updatedDto": cleaned_info
+                },
+                "operation": "updateDocumentById"
             }
             
-            response = retry_with_backoff(
-                client.update,
-                index=OPENSEARCH_INDEX,
-                id=record_id,
-                body=update_body,
-                refresh=True
+            logger.debug(f"Updating document {record_id} with payload: {update_payload}")
+            
+            # Invoke Lambda function to update the document
+            update_response = retry_with_backoff(
+                lambda_client.invoke,
+                FunctionName=lambda_function_name,
+                InvocationType='RequestResponse',
+                Payload=json.dumps(update_payload)
             )
             
-            if response.get('result') == 'updated':
+            # Parse the response
+            update_result = json.loads(update_response['Payload'].read().decode())
+            
+            # Log the response for debugging
+            logger.debug(f"Update document response for {record_id}: {update_result}")
+            
+            # Log the raw response for debugging
+            logger.debug(f"Raw update response for {record_id}: {json.dumps(update_result)}")
+            
+            # Check for successful update based on common response patterns
+            success = False
+            
+            # Handle different response formats
+            if update_result.get('statusCode') == 200:
+                success = True
+            elif update_result.get('result') == 'updated':
+                success = True
+            elif isinstance(update_result.get('body'), dict) and update_result.get('body').get('result') == 'updated':
+                success = True
+            elif isinstance(update_result.get('body'), str):
+                try:
+                    body_json = json.loads(update_result['body'])
+                    if body_json.get('result') == 'updated':
+                        success = True
+                except json.JSONDecodeError:
+                    pass
+            
+            if success:
                 updated_count += 1
-                logger.debug(f"Successfully updated document {record_id}")
+                logger.info(f"Successfully updated document {record_id}")
             else:
-                logger.warning(f"Update for document {record_id} returned unexpected result: {response.get('result')}")
+                error_msg = "Unknown error"
+                if update_result.get('body') and isinstance(update_result.get('body'), str):
+                    try:
+                        body_json = json.loads(update_result['body'])
+                        error_msg = body_json.get('error', error_msg)
+                    except json.JSONDecodeError:
+                        pass
+                
+                logger.warning(f"Update for document {record_id} failed: {error_msg} (Status: {update_result.get('statusCode')})")
+                logger.debug(f"Full error response: {update_result}")
                 
         except Exception as e:
             logger.error(f"Error updating document {record_id}: {e}")
     
-    logger.info(f"Updated {updated_count} documents in OpenSearch")
+    logger.info(f"Updated {updated_count} documents via Lambda function")
     
     # Log records that were not found
     if not_found_records:
@@ -246,7 +389,7 @@ def update_opensearch_records(client, records):
             
             # Optionally upload the log file to S3
             s3_client = boto3.client('s3')
-            log_key = f"{S3_PREFIX}logs/not_found_records_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            log_key = f"logs/not_found_records_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
             s3_client.upload_file(NOT_FOUND_LOG_FILE, S3_BUCKET, log_key)
             logger.info(f"Uploaded not found records log to s3://{S3_BUCKET}/{log_key}")
         except Exception as e:
@@ -254,12 +397,59 @@ def update_opensearch_records(client, records):
     
     return updated_count, not_found_records
 
+def test_opensearch_connectivity(lambda_client):
+    """
+    Test connectivity to the OpenSearch Lambda function.
+    
+    Args:
+        lambda_client: The Lambda client to use for the test
+        
+    Returns:
+        bool: True if connection is successful, False otherwise
+    """
+    lambda_function_name = OPENSEARCH_LAMBDA_PROD if ENVIRONMENT.lower() == 'prod' else OPENSEARCH_LAMBDA_DEV
+    
+    try:
+        # Prepare a simple test payload
+        test_payload = {
+            "indexName": OPENSEARCH_INDEX,
+            "operation": "ping"
+        }
+        
+        logger.info(f"Testing connectivity to OpenSearch Lambda function: {lambda_function_name}")
+        
+        # Invoke Lambda function
+        response = retry_with_backoff(
+            lambda_client.invoke,
+            FunctionName=lambda_function_name,
+            InvocationType='RequestResponse',
+            Payload=json.dumps(test_payload)
+        )
+        
+        # Parse the response
+        result = json.loads(response['Payload'].read().decode())
+        
+        # Log the response
+        logger.info(f"OpenSearch Lambda connectivity test result: {result}")
+        
+        # Check if the response indicates success
+        if result.get('statusCode') == 200:
+            logger.info("OpenSearch Lambda connectivity test successful")
+            return True
+        else:
+            logger.warning(f"OpenSearch Lambda connectivity test failed: {result}")
+            return False
+    
+    except Exception as e:
+        logger.error(f"Error testing OpenSearch Lambda connectivity: {e}")
+        return False
+
 def lambda_handler(event, context):
     """
     AWS Lambda function handler.
     """
-    if not OPENSEARCH_ENDPOINT or not S3_BUCKET:
-        error_msg = "Missing required environment variables: OPENSEARCH_ENDPOINT and S3_BUCKET must be set."
+    if not S3_BUCKET:
+        error_msg = "Missing required environment variable: S3_BUCKET must be set."
         logger.error(error_msg)
         return {
             'statusCode': 500,
@@ -267,8 +457,13 @@ def lambda_handler(event, context):
         }
     
     try:
-        logger.info("Connecting to OpenSearch...")
-        client = get_opensearch_client()
+        logger.info(f"Initializing Lambda client for OpenSearch operations using {ENVIRONMENT} environment...")
+        lambda_client = get_opensearch_lambda_client()
+        
+        # Test connectivity to OpenSearch Lambda function
+        if not test_opensearch_connectivity(lambda_client):
+            logger.warning("Proceeding with processing despite connectivity test failure")
+            # We continue processing even if the test fails, but we've logged the warning
         
         # List all files in the S3 bucket with the specified prefix
         s3_files = list_s3_files(S3_BUCKET, S3_PREFIX)
@@ -291,8 +486,8 @@ def lambda_handler(event, context):
             records = read_inference_output_from_s3(S3_BUCKET, s3_key)
             
             if records:
-                logger.info(f"Updating OpenSearch records for file {s3_key}...")
-                updated_count, not_found_records = update_opensearch_records(client, records)
+                logger.info(f"Processing records from file {s3_key} for update...")
+                updated_count, not_found_records = update_opensearch_records(lambda_client, records)
                 total_updated += updated_count
                 all_not_found.extend(not_found_records)
             else:
