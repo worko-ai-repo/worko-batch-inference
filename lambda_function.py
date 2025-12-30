@@ -13,6 +13,7 @@ import io
 import datetime
 import time
 import random
+import re
 import boto3
 from botocore.exceptions import ClientError
 
@@ -28,6 +29,10 @@ REGION = os.environ.get('AWS_REGION', 'ap-south-1')
 # Lambda function names for different environments
 OPENSEARCH_LAMBDA_DEV = os.environ.get('OPENSEARCH_LAMBDA_DEV', 'worko-job-app-dev-app-opensearch-operations')
 OPENSEARCH_LAMBDA_PROD = os.environ.get('OPENSEARCH_LAMBDA_PROD', 'worko-job-app-prod-app-opensearch-operations')
+
+# Vector index generation lambda function
+VECTOR_INDEX_LAMBDA = os.environ.get('VECTOR_INDEX_LAMBDA')
+VECTOR_INDEX_NAME = os.environ.get('VECTOR_INDEX_NAME')
 
 # Environment setting
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'dev')
@@ -142,6 +147,70 @@ def parse_opensearch_response(response_payload):
     
     return success, document_data, status_code, error_message
 
+def trigger_vector_index_generation(lambda_client, record_id):
+    """
+    Trigger vector index generation by calling another lambda function asynchronously.
+    
+    Args:
+        lambda_client: The Lambda client to use
+        record_id: The document ID that was updated
+    """
+    if not VECTOR_INDEX_LAMBDA or not VECTOR_INDEX_NAME:
+        logger.warning("Vector index lambda function or index name not configured, skipping vector generation")
+        return
+    
+    try:
+        # First get the updated document from OpenSearch
+        lambda_function_name = OPENSEARCH_LAMBDA_PROD if ENVIRONMENT.lower() == 'prod' else OPENSEARCH_LAMBDA_DEV
+        
+        get_payload = {
+            "indexName": OPENSEARCH_INDEX,
+            "body": {
+                "documentId": record_id
+            },
+            "operation": "getDocumentById"
+        }
+        
+        # Get the updated document
+        get_response = retry_with_backoff(
+            lambda_client.invoke,
+            FunctionName=lambda_function_name,
+            InvocationType='RequestResponse',
+            Payload=json.dumps(get_payload)
+        )
+        
+        get_result = json.loads(get_response['Payload'].read().decode())
+        
+        # Extract the full document structure (one level up from _source)
+        body = get_result.get('body')
+        if isinstance(body, str):
+            body = json.loads(body)
+        
+        if not body:
+            logger.error(f"Failed to retrieve document {record_id} for vector generation")
+            return
+        
+        # Prepare payload for vector index generation - use the full document structure
+        vector_payload = {
+            "jobData": body,  # This contains the full OpenSearch document with _index, _id, _source etc.
+            "indexName": VECTOR_INDEX_NAME
+        }
+        
+        logger.info(f"Triggering vector index generation for document {record_id}")
+        
+        # Call vector index lambda function asynchronously
+        lambda_client.invoke(
+            FunctionName=VECTOR_INDEX_LAMBDA,
+            InvocationType='Event',  # Async invocation
+            Payload=json.dumps(vector_payload)
+        )
+        
+        logger.info(f"Successfully triggered vector index generation for document {record_id}")
+        logger.debug(f"Vector payload structure: {json.dumps(vector_payload, indent=2)[:500]}...")
+        
+    except Exception as e:
+        logger.error(f"Error triggering vector index generation for document {record_id}: {e}")
+
 def list_s3_files(bucket, prefix):
     """
     List all files in an S3 bucket with the given prefix.
@@ -184,17 +253,36 @@ def read_inference_output_from_s3(bucket, key):
     """
     records = []
     s3_client = boto3.client('s3', region_name=REGION)
+    total_lines = 0
+    skipped_lines = 0
+    invalid_json_lines = 0
+    missing_record_id_lines = 0
+    missing_extracted_info_lines = 0
     
     try:
         logger.info(f"Reading inference output from s3://{bucket}/{key}")
         response = s3_client.get_object(Bucket=bucket, Key=key)
         content = response['Body'].read().decode('utf-8')
         
+        lines = content.splitlines()
+        total_lines = len(lines)
+        logger.info(f"Total lines in file {key}: {total_lines}")
+        
         # Process each line in the file
-        for line in content.splitlines():
+        for line_num, line in enumerate(lines, 1):
+            if not line.strip():  # Skip empty lines
+                skipped_lines += 1
+                logger.debug(f"Skipping empty line {line_num}")
+                continue
+                
             try:
                 data = json.loads(line)
                 record_id = data.get('recordId')
+                
+                if not record_id:
+                    missing_record_id_lines += 1
+                    logger.warning(f"Line {line_num}: Missing recordId in data: {line[:200]}...")
+                    continue
                 
                 # Extract the model output which contains the processed information
                 model_output = data.get('modelOutput', {})
@@ -204,29 +292,58 @@ def read_inference_output_from_s3(bucket, key):
                 extracted_info = None
                 for item in content_items:
                     if item.get('type') == 'text':
+                        text_content = item.get('text', '{}')
                         try:
-                            extracted_info = json.loads(item.get('text', '{}'))
+                            extracted_info = json.loads(text_content)
                             break
                         except json.JSONDecodeError:
-                            logger.warning(f"Could not parse JSON from content for record {record_id}")
+                            # Try to clean the text by removing comment patterns
+                            try:
+                                comment_matches = re.findall(r'//[^\n]*\n?', text_content)
+                                if comment_matches:
+                                    logger.info(f"Line {line_num}: Found comment patterns for record {record_id}: {comment_matches}")
+                                cleaned_text = re.sub(r'//[^\n]*\n?', '', text_content)
+                                extracted_info = json.loads(cleaned_text)
+                                logger.info(f"Line {line_num}: Successfully parsed JSON after cleaning for record {record_id}")
+                                break
+                            except json.JSONDecodeError:
+                                logger.warning(f"Line {line_num}: Could not parse JSON from content for record {record_id} even after cleaning. Content: {text_content[:200]}...")
+                                continue
                 
-                if record_id and extracted_info:
-                    records.append({
-                        'record_id': record_id,
-                        'extracted_info': extracted_info
-                    })
-                else:
-                    logger.warning(f"Missing record_id or extracted_info in line: {line[:100]}...")
+                if not extracted_info:
+                    missing_extracted_info_lines += 1
+                    logger.warning(f"Line {line_num}: Missing extracted_info for record {record_id}. Model output: {json.dumps(model_output)[:300]}...")
+                    continue
+                
+                records.append({
+                    'record_id': record_id,
+                    'extracted_info': extracted_info
+                })
                     
             except json.JSONDecodeError:
-                logger.error(f"Invalid JSON in line: {line[:100]}...")
+                invalid_json_lines += 1
+                logger.error(f"Line {line_num}: Invalid JSON: {line[:200]}...")
             except Exception as e:
-                logger.error(f"Error processing line: {e}")
+                skipped_lines += 1
+                logger.error(f"Line {line_num}: Error processing line: {e}. Line content: {line[:200]}...")
     
     except Exception as e:
         logger.error(f"Error reading inference output file from S3: {e}")
     
-    logger.info(f"Processed {len(records)} records from inference output file {key}")
+    # Log detailed statistics
+    processed_records = len(records)
+    logger.info(f"File {key} processing summary:")
+    logger.info(f"  Total lines: {total_lines}")
+    logger.info(f"  Successfully processed records: {processed_records}")
+    logger.info(f"  Skipped empty/error lines: {skipped_lines}")
+    logger.info(f"  Invalid JSON lines: {invalid_json_lines}")
+    logger.info(f"  Missing recordId lines: {missing_record_id_lines}")
+    logger.info(f"  Missing extracted_info lines: {missing_extracted_info_lines}")
+    logger.info(f"  Total unprocessed lines: {total_lines - processed_records}")
+    
+    if total_lines != processed_records:
+        logger.warning(f"MISMATCH: Expected {total_lines} records but only processed {processed_records} records from file {key}")
+    
     return records
 
 def update_opensearch_records(lambda_client, records):
@@ -235,6 +352,8 @@ def update_opensearch_records(lambda_client, records):
     """
     updated_count = 0
     not_found_records = []
+    skipped_already_updated = 0
+    processing_errors = 0
     
     logger.info(f"Starting to update {len(records)} OpenSearch records")
     # Log the first record structure for debugging
@@ -244,7 +363,7 @@ def update_opensearch_records(lambda_client, records):
     # Determine which Lambda function to use based on environment
     lambda_function_name = OPENSEARCH_LAMBDA_PROD if ENVIRONMENT.lower() == 'prod' else OPENSEARCH_LAMBDA_DEV
     
-    for record in records:
+    for record_index, record in enumerate(records, 1):
         record_id = record['record_id']
         extracted_info = record['extracted_info']
         
@@ -304,7 +423,8 @@ def update_opensearch_records(lambda_client, records):
                 
                 # Check if document already has isJobUpdated field set to true
                 if doc_source.get('isJobUpdated') == True:
-                    logger.info(f"Skipping document {record_id} as it's already updated (isJobUpdated=true)")
+                    skipped_already_updated += 1
+                    logger.info(f"Record {record_index}/{len(records)}: Skipping document {record_id} as it's already updated (isJobUpdated=true)")
                     continue
                     
             except Exception as e:
@@ -361,8 +481,12 @@ def update_opensearch_records(lambda_client, records):
             
             if success:
                 updated_count += 1
-                logger.info(f"Successfully updated document {record_id}")
+                logger.info(f"Record {record_index}/{len(records)}: Successfully updated document {record_id}")
+                
+                # Trigger vector index generation after successful update
+                trigger_vector_index_generation(lambda_client, record_id)
             else:
+                processing_errors += 1
                 error_msg = "Unknown error"
                 if update_result.get('body') and isinstance(update_result.get('body'), str):
                     try:
@@ -371,13 +495,25 @@ def update_opensearch_records(lambda_client, records):
                     except json.JSONDecodeError:
                         pass
                 
-                logger.warning(f"Update for document {record_id} failed: {error_msg} (Status: {update_result.get('statusCode')})")
+                logger.warning(f"Record {record_index}/{len(records)}: Update for document {record_id} failed: {error_msg} (Status: {update_result.get('statusCode')})")
                 logger.debug(f"Full error response: {update_result}")
                 
         except Exception as e:
-            logger.error(f"Error updating document {record_id}: {e}")
+            processing_errors += 1
+            logger.error(f"Record {record_index}/{len(records)}: Error updating document {record_id}: {e}")
     
-    logger.info(f"Updated {updated_count} documents via Lambda function")
+    # Log detailed processing summary
+    total_processed = updated_count + len(not_found_records) + skipped_already_updated + processing_errors
+    logger.info(f"OpenSearch update summary:")
+    logger.info(f"  Total records to process: {len(records)}")
+    logger.info(f"  Successfully updated: {updated_count}")
+    logger.info(f"  Not found in OpenSearch: {len(not_found_records)}")
+    logger.info(f"  Already updated (skipped): {skipped_already_updated}")
+    logger.info(f"  Processing errors: {processing_errors}")
+    logger.info(f"  Total processed: {total_processed}")
+    
+    if total_processed != len(records):
+        logger.error(f"PROCESSING MISMATCH: Expected to process {len(records)} records but only processed {total_processed}")
     
     # Log records that were not found
     if not_found_records:
@@ -397,53 +533,6 @@ def update_opensearch_records(lambda_client, records):
     
     return updated_count, not_found_records
 
-def test_opensearch_connectivity(lambda_client):
-    """
-    Test connectivity to the OpenSearch Lambda function.
-    
-    Args:
-        lambda_client: The Lambda client to use for the test
-        
-    Returns:
-        bool: True if connection is successful, False otherwise
-    """
-    lambda_function_name = OPENSEARCH_LAMBDA_PROD if ENVIRONMENT.lower() == 'prod' else OPENSEARCH_LAMBDA_DEV
-    
-    try:
-        # Prepare a simple test payload
-        test_payload = {
-            "indexName": OPENSEARCH_INDEX,
-            "operation": "ping"
-        }
-        
-        logger.info(f"Testing connectivity to OpenSearch Lambda function: {lambda_function_name}")
-        
-        # Invoke Lambda function
-        response = retry_with_backoff(
-            lambda_client.invoke,
-            FunctionName=lambda_function_name,
-            InvocationType='RequestResponse',
-            Payload=json.dumps(test_payload)
-        )
-        
-        # Parse the response
-        result = json.loads(response['Payload'].read().decode())
-        
-        # Log the response
-        logger.info(f"OpenSearch Lambda connectivity test result: {result}")
-        
-        # Check if the response indicates success
-        if result.get('statusCode') == 200:
-            logger.info("OpenSearch Lambda connectivity test successful")
-            return True
-        else:
-            logger.warning(f"OpenSearch Lambda connectivity test failed: {result}")
-            return False
-    
-    except Exception as e:
-        logger.error(f"Error testing OpenSearch Lambda connectivity: {e}")
-        return False
-
 def lambda_handler(event, context):
     """
     AWS Lambda function handler.
@@ -459,11 +548,6 @@ def lambda_handler(event, context):
     try:
         logger.info(f"Initializing Lambda client for OpenSearch operations using {ENVIRONMENT} environment...")
         lambda_client = get_opensearch_lambda_client()
-        
-        # Test connectivity to OpenSearch Lambda function
-        if not test_opensearch_connectivity(lambda_client):
-            logger.warning("Proceeding with processing despite connectivity test failure")
-            # We continue processing even if the test fails, but we've logged the warning
         
         # List all files in the S3 bucket with the specified prefix
         s3_files = list_s3_files(S3_BUCKET, S3_PREFIX)
@@ -486,12 +570,13 @@ def lambda_handler(event, context):
             records = read_inference_output_from_s3(S3_BUCKET, s3_key)
             
             if records:
-                logger.info(f"Processing records from file {s3_key} for update...")
+                logger.info(f"Processing {len(records)} records from file {s3_key} for update...")
                 updated_count, not_found_records = update_opensearch_records(lambda_client, records)
                 total_updated += updated_count
                 all_not_found.extend(not_found_records)
+                logger.info(f"File {s3_key} update summary: {updated_count} updated, {len(not_found_records)} not found")
             else:
-                logger.info(f"No records found in file {s3_key}.")
+                logger.warning(f"No valid records found in file {s3_key} - check file format and content")
         
         logger.info(f"Total records updated across all files: {total_updated}")
         

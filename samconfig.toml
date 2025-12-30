@@ -6,7 +6,7 @@ s3_prefix = "worko-job-batch-inference-app"
 region = "ap-south-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Environment=\"dev\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-dev\" S3Prefix=\"bedrock-output/\" LambdaMemorySize=\"512\" LambdaTimeout=\"300\""
+parameter_overrides = "Environment=\"dev\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-dev\" S3Prefix=\"bedrock-output/\" LambdaMemorySize=\"512\" LambdaTimeout=\"840\" VectorIndexLambda=\"worko-s3-vector-job-ingestion\" VectorIndexName=\"worko-s3-jobs-index-test-test\""
 image_repositories = []
 
 [default.deploy.parameters]
@@ -16,7 +16,7 @@ s3_prefix = "worko-job-batch-inference"
 region = "ap-south-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Environment=\"dev\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-dev\" S3Prefix=\"output\" LambdaMemorySize=\"512\" LambdaTimeout=\"300\""
+parameter_overrides = "Environment=\"dev\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-dev\" S3Prefix=\"output\" LambdaMemorySize=\"512\" LambdaTimeout=\"840\" VectorIndexLambda=\"worko-s3-vector-job-ingestion\" VectorIndexName=\"worko-s3-jobs-index-test-test\""
 image_repositories = []
 
 [prod.deploy.parameters]
@@ -26,5 +26,5 @@ s3_prefix = "worko-job-batch-inference"
 region = "ap-south-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Environment=\"prod\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-prod\" S3Prefix=\"bedrock-output/\" LambdaMemorySize=\"512\" LambdaTimeout=\"300\""
+parameter_overrides = "Environment=\"prod\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-prod\" S3Prefix=\"output\" LambdaMemorySize=\"512\" LambdaTimeout=\"840\" VectorIndexLambda=\"worko-vector-store-job-crud-prod\" VectorIndexName=\"worko-job-index-prod\""
 image_repositories = []

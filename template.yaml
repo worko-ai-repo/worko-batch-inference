@@ -34,7 +34,17 @@ Parameters:
   LambdaTimeout:
     Type: Number
     Description: Timeout for the Lambda function in seconds
-    Default: 600  # 10 minutes
+    Default: 840  # 14 minutes
+    
+  VectorIndexLambda:
+    Type: String
+    Description: Lambda function name for vector index generation
+    Default: worko-s3-vector-job-ingestion
+    
+  VectorIndexName:
+    Type: String
+    Description: Vector index name
+    Default: worko-s3-jobs-index-test-test
     
   # VPC configuration removed as Lambda now calls another Lambda function outside VPC
 
@@ -57,6 +67,8 @@ Resources:
           S3_PREFIX: !Ref S3Prefix
           OPENSEARCH_LAMBDA_DEV: worko-job-app-dev-app-opensearch-operations
           OPENSEARCH_LAMBDA_PROD: worko-job-app-prod-app-opensearch-operations
+          VECTOR_INDEX_LAMBDA: !Ref VectorIndexLambda
+          VECTOR_INDEX_NAME: !Ref VectorIndexName
       # VPC configuration removed as Lambda now calls another Lambda function outside VPC
       Policies:
         - S3ReadPolicy:
@@ -71,6 +83,8 @@ Resources:
               Resource:
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-job-app-dev-app-opensearch-operations"
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-job-app-prod-app-opensearch-operations"
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${VectorIndexLambda}"
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-vector-store-job-crud-prod"
       Events:
         BedrockBatchInferenceCompletion:
           Type: EventBridgeRule
