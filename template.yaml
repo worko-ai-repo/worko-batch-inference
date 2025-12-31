@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: SAM template for Worko Batch Inference OpenSearch Updater
+Description: SAM template for Worko Batch Inference OpenSearch and Firestore Updater
 
 Parameters:
   Environment:
@@ -45,6 +45,11 @@ Parameters:
     Type: String
     Description: Vector index name
     Default: worko-s3-jobs-index-test-test
+  
+  GcpSecretArn:
+    Type: String
+    Description: ARN of the GCP Firestore secret in AWS Secrets Manager
+    Default: arn:aws:secretsmanager:ap-south-1:211125353899:secret:GCP-firestore-secret-dev-1fEW4B
     
   # VPC configuration removed as Lambda now calls another Lambda function outside VPC
 
@@ -85,6 +90,64 @@ Resources:
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-job-app-prod-app-opensearch-operations"
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${VectorIndexLambda}"
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-vector-store-job-crud-prod"
+      # Events:
+      #   BedrockBatchInferenceCompletion:
+      #     Type: EventBridgeRule
+      #     Properties:
+      #       Pattern:
+      #         source:
+      #           - aws.bedrock
+      #         detail-type:
+      #           - Batch Inference Job State Change
+      #         detail:
+      #           status:
+      #             - Completed
+
+  NotFoundLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3BucketName}-logs"
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 30
+
+  WorkoBatchInferenceFirestoreUpdaterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: worko-job-batch-inference-firestore-update-function
+      Description: Lambda function to update GCP Firestore with batch inference results
+      CodeUri: ./
+      Handler: lambda_function_firestore.lambda_handler
+      Runtime: python3.9
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          S3_BUCKET: !Ref S3BucketName
+          S3_PREFIX: !Ref S3Prefix
+          VECTOR_INDEX_LAMBDA: !Ref VectorIndexLambda
+          VECTOR_INDEX_NAME: !Ref VectorIndexName
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref S3BucketName
+        - S3WritePolicy:
+            BucketName: !Ref S3BucketName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: 
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:GCP-firestore-secret-${Environment}-*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${VectorIndexLambda}"
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-vector-store-job-crud-prod"
       Events:
         BedrockBatchInferenceCompletion:
           Type: EventBridgeRule
@@ -98,21 +161,15 @@ Resources:
                 status:
                   - Completed
 
-  NotFoundLogsBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub "${S3BucketName}-logs"
-      LifecycleConfiguration:
-        Rules:
-          - Id: DeleteOldLogs
-            Status: Enabled
-            ExpirationInDays: 30
-
 Outputs:
   WorkoBatchInferenceUpdaterFunction:
     Description: Lambda function for updating OpenSearch with batch inference results
     Value: !GetAtt WorkoBatchInferenceUpdaterFunction.Arn
+  
+  WorkoBatchInferenceFirestoreUpdaterFunction:
+    Description: Lambda function for updating GCP Firestore with batch inference results
+    Value: !GetAtt WorkoBatchInferenceFirestoreUpdaterFunction.Arn
     
   NotFoundLogsBucket:
-    Description: S3 bucket for storing logs of records not found in OpenSearch
+    Description: S3 bucket for storing logs of records not found in OpenSearch/Firestore
     Value: !Ref NotFoundLogsBucket

@@ -1,12 +1,12 @@
 version = 0.1
 [dev.deploy.parameters]
-stack_name = "worko-job-batch-inference-app"
+stack_name = "worko-job-batch-inference"
 resolve_s3 = true
-s3_prefix = "worko-job-batch-inference-app"
+s3_prefix = "worko-job-batch-inference"
 region = "ap-south-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Environment=\"dev\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-dev\" S3Prefix=\"bedrock-output/\" LambdaMemorySize=\"512\" LambdaTimeout=\"840\" VectorIndexLambda=\"worko-s3-vector-job-ingestion\" VectorIndexName=\"worko-s3-jobs-index-test-test\""
+parameter_overrides = "Environment=\"dev\" OpenSearchIndex=\"worko-jobs\" S3BucketName=\"worko-batch-inference-dev\" S3Prefix=\"output\" LambdaMemorySize=\"512\" LambdaTimeout=\"840\" VectorIndexLambda=\"worko-s3-vector-job-ingestion\" VectorIndexName=\"worko-s3-jobs-index-test-test\" GcpSecretArn=\"arn:aws:secretsmanager:ap-south-1:211125353899:secret:GCP-firestore-secret-dev-1fEW4B\""
 image_repositories = []
 
 [default.deploy.parameters]
