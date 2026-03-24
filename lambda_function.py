@@ -17,6 +17,7 @@ from opensearchpy import OpenSearch, RequestsHttpConnection
 from opensearchpy.exceptions import NotFoundError, ConnectionTimeout, TransportError
 from requests_aws4auth import AWS4Auth
 import boto3
+#test deployment with cicd workflow
 
 # Configure logging
 logger = logging.getLogger()

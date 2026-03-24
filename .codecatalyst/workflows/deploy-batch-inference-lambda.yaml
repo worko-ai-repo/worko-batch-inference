@@ -1,0 +1,135 @@
+Name: DeployBatchInferencePostProcessingLambda
+SchemaVersion: "1.0"
+
+Triggers:
+  - Type: PUSH
+    Branches:
+      - main
+
+Actions:
+  BuildAndDeploy:
+    Identifier: aws/build@v1
+    Inputs:
+      Sources:
+        - WorkflowSource
+    Configuration:
+      Steps:
+        - Run: |
+            echo "=== Batch Inference Post Processing Lambda Deployment ==="
+            
+            # Set AWS default profile
+            set AWS_PROFILE=DeveloperAccess-211125353899
+            
+            # Set environment variables
+            ENV="dev"
+            export AWS_REGION="ap-south-1"
+            export AWS_DEFAULT_REGION=$AWS_REGION
+            S3_BUCKET_MANAGED="worko-batch-inference-dev"
+            
+            echo "Environment Variables:"
+            echo "AWS_PROFILE: $AWS_PROFILE"
+            echo "ENV: $ENV"
+            echo "AWS_REGION: $AWS_REGION"
+            echo "S3_BUCKET_MANAGED: $S3_BUCKET_MANAGED"
+            
+            STACK_NAME="worko-job-batch-inference-app"
+            FUNCTION_NAME="worko-job-batch-inference-update-function"
+            
+            # ============================================================
+            # FORCE CLEANUP STEP (COMMENTED OUT) Run only in case of manual deployemnts so it will delete first
+            # ============================================================
+            # Uncomment this section ONLY when you need to:
+            # 1. Delete corrupted CloudFormation stacks
+            # 2. Remove manually deployed Lambda functions
+            # 3. Force a complete clean slate deployment
+            #
+            # WARNING: This will DELETE your Lambda and CloudFormation stack!
+            # ============================================================
+            
+            # echo "=== FORCE CLEANUP: Deleting corrupted resources ==="
+            # 
+            # # Delete manually deployed Lambda function if exists
+            # if aws lambda get-function --function-name $FUNCTION_NAME --region $AWS_REGION 2>/dev/null; then
+            #   echo "Deleting manually deployed Lambda function: $FUNCTION_NAME"
+            #   aws lambda delete-function --function-name $FUNCTION_NAME --region $AWS_REGION || true
+            #   echo "Lambda function deleted"
+            # fi
+            # 
+            # # Delete CloudFormation stack if exists (including corrupted ones)
+            # if aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION 2>/dev/null; then
+            #   echo "Deleting CloudFormation stack: $STACK_NAME"
+            #   aws cloudformation delete-stack --stack-name $STACK_NAME --region $AWS_REGION
+            #   echo "Waiting for stack deletion..."
+            #   aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $AWS_REGION || true
+            #   echo "Stack deleted successfully"
+            # fi
+            # 
+            # echo "Force cleanup completed"
+            
+            # Delete broken stack if it exists
+            echo "Checking for existing stack..."
+            if aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION 2>/dev/null; then
+              STACK_STATUS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
+              echo "Stack status: $STACK_STATUS"
+              
+              if [[ "$STACK_STATUS" == *"ROLLBACK_FAILED"* ]] || [[ "$STACK_STATUS" == *"FAILED"* ]] || [[ "$STACK_STATUS" == *"UPDATE_ROLLBACK_FAILED"* ]]; then
+                echo "Stack is in failed state, deleting..."
+                aws cloudformation delete-stack --stack-name $STACK_NAME --region $AWS_REGION
+                echo "Waiting for stack deletion..."
+                aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $AWS_REGION
+                echo "Broken stack deleted successfully"
+              fi
+            fi
+            
+            # Check if Lambda function exists
+            echo "Checking if Lambda function exists..."
+            LAMBDA_EXISTS=false
+            if aws lambda get-function --function-name $FUNCTION_NAME --region $AWS_REGION 2>/dev/null; then
+              echo "Lambda function exists - will update"
+              LAMBDA_EXISTS=true
+            else
+              echo "Lambda function does not exist - will create"
+              LAMBDA_EXISTS=false
+            fi
+            
+            echo "Installing dependencies..."
+            pip install -r requirements.txt -t .
+            
+            echo "Building SAM application..."
+            sam build
+            BUILD_EXIT_CODE=$?
+            if [ $BUILD_EXIT_CODE -ne 0 ]; then
+              echo "ERROR: Build failed"
+              exit 1
+            fi
+            
+            echo "Validating template..."
+            aws cloudformation validate-template --template-body file://.aws-sam/build/template.yaml --region $AWS_REGION
+            
+            echo "Deploying to CloudFormation..."
+            if [ "$LAMBDA_EXISTS" = true ]; then
+              echo "Updating existing Lambda function"
+              sam deploy --config-env dev --no-confirm-changeset --no-fail-on-empty-changeset
+            else
+              echo "Creating new Lambda function"
+              sam deploy --config-env dev --on-failure DELETE --no-confirm-changeset --no-fail-on-empty-changeset
+            fi
+            
+            DEPLOY_EXIT_CODE=$?
+            
+            if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+              echo "ERROR: Deployment failed with exit code $DEPLOY_EXIT_CODE"
+              echo "Fetching CloudFormation Stack Events..."
+              aws cloudformation describe-stack-events --stack-name $STACK_NAME --region $AWS_REGION --max-items 20 || true
+              exit 1
+            fi
+            
+            echo "SUCCESS: Batch Inference Post Processing Lambda deployed successfully"
+            
+            # Verify deployment
+            NEW_VERSION=$(aws lambda get-function --function-name $FUNCTION_NAME --region $AWS_REGION --query 'Configuration.Version' --output text)
+            echo "New version deployed: $NEW_VERSION"
+    Environment:
+      Name: dev
+    Compute:
+      Type: EC2
