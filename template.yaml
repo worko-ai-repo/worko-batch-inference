@@ -44,12 +44,7 @@ Parameters:
   VectorIndexName:
     Type: String
     Description: Vector index name
-    Default: worko-s3-jobs-index-test-test
-  
-  GcpSecretArn:
-    Type: String
-    Description: ARN of the GCP Firestore secret in AWS Secrets Manager
-    Default: arn:aws:secretsmanager:ap-south-1:211125353899:secret:GCP-firestore-secret-dev-1fEW4B
+    Default: worko-s3-jobs-index
     
   # VPC configuration removed as Lambda now calls another Lambda function outside VPC
 
@@ -74,13 +69,11 @@ Resources:
           OPENSEARCH_LAMBDA_PROD: worko-job-app-prod-app-opensearch-operations
           VECTOR_INDEX_LAMBDA: !Ref VectorIndexLambda
           VECTOR_INDEX_NAME: !Ref VectorIndexName
-      # VPC configuration removed as Lambda now calls another Lambda function outside VPC
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref S3BucketName
         - S3WritePolicy:
             BucketName: !Ref S3BucketName
-        # VPC access policy removed as Lambda now operates outside VPC
         - Statement:
             - Effect: Allow
               Action:
@@ -90,18 +83,8 @@ Resources:
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-job-app-prod-app-opensearch-operations"
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${VectorIndexLambda}"
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-vector-store-job-crud-prod"
-      # Events:
-      #   BedrockBatchInferenceCompletion:
-      #     Type: EventBridgeRule
-      #     Properties:
-      #       Pattern:
-      #         source:
-      #           - aws.bedrock
-      #         detail-type:
-      #           - Batch Inference Job State Change
-      #         detail:
-      #           status:
-      #             - Completed
+    Metadata:
+      BuildMethod: makefile
 
   NotFoundLogsBucket:
     Type: AWS::S3::Bucket
@@ -117,7 +100,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: worko-job-batch-inference-firestore-update-function
-      Description: Lambda function to update GCP Firestore with batch inference results
+      Description: Lambda function to update GCP Firestore with Bedrock batch inference results
       CodeUri: ./
       Handler: lambda_function_firestore.lambda_handler
       Runtime: python3.9
@@ -148,18 +131,87 @@ Resources:
               Resource:
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${VectorIndexLambda}"
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-vector-store-job-crud-prod"
+    Metadata:
+      BuildMethod: makefile
+
+  WorkoBatchInferenceFirestoreGcpUpdaterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: worko-job-batch-inference-firestore-gcp-update-function
+      Description: Lambda function to update GCP Firestore with GCP Vertex AI batch inference results
+      PackageType: Image
+      Architectures:
+        - x86_64
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          VECTOR_INDEX_LAMBDA: !Ref VectorIndexLambda
+          VECTOR_INDEX_NAME: !Ref VectorIndexName
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: 
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:GCP-firestore-secret-${Environment}-*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${VectorIndexLambda}"
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:worko-vector-store-job-crud-prod"
       Events:
-        BedrockBatchInferenceCompletion:
-          Type: EventBridgeRule
+        ApiEvent:
+          Type: Api
           Properties:
-            Pattern:
-              source:
-                - aws.bedrock
-              detail-type:
-                - Batch Inference Job State Change
-              detail:
-                status:
-                  - Completed
+            Path: /process
+            Method: POST
+            RestApiId: !Ref GcpFirestoreApi
+    Metadata:
+      DockerTag: v1
+      DockerContext: ./
+      Dockerfile: Dockerfile
+
+  GcpFirestoreApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Auth:
+        ApiKeyRequired: true
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          UsagePlanName: GcpFirestoreUsagePlan
+
+  GcpFirestoreApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn:
+      - GcpFirestoreApiprodStage
+    Properties:
+      Name: GcpFirestoreApiKey
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref GcpFirestoreApi
+          StageName: prod
+
+  GcpFirestoreUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn:
+      - GcpFirestoreApiprodStage
+    Properties:
+      UsagePlanName: GcpFirestoreUsagePlan
+      ApiStages:
+        - ApiId: !Ref GcpFirestoreApi
+          Stage: prod
+
+  GcpFirestoreUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref GcpFirestoreApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref GcpFirestoreUsagePlan
 
 Outputs:
   WorkoBatchInferenceUpdaterFunction:
@@ -167,9 +219,17 @@ Outputs:
     Value: !GetAtt WorkoBatchInferenceUpdaterFunction.Arn
   
   WorkoBatchInferenceFirestoreUpdaterFunction:
-    Description: Lambda function for updating GCP Firestore with batch inference results
+    Description: Lambda function for updating GCP Firestore with Bedrock batch inference results
     Value: !GetAtt WorkoBatchInferenceFirestoreUpdaterFunction.Arn
-    
-  NotFoundLogsBucket:
-    Description: S3 bucket for storing logs of records not found in OpenSearch/Firestore
-    Value: !Ref NotFoundLogsBucket
+  
+  WorkoBatchInferenceFirestoreGcpUpdaterFunction:
+    Description: Lambda function for updating GCP Firestore with GCP Vertex AI batch inference results
+    Value: !GetAtt WorkoBatchInferenceFirestoreGcpUpdaterFunction.Arn
+  
+  GcpFirestoreApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${GcpFirestoreApi}.execute-api.${AWS::Region}.amazonaws.com/prod/process"
+  
+  ApiKeyId:
+    Description: API Key ID (use AWS Console to get the actual key value)
+    Value: !Ref GcpFirestoreApiKey
